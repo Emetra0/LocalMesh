@@ -23,8 +23,13 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 if ! command -v node >/dev/null 2>&1; then
-  curl -fsSL "https://deb.nodesource.com/setup_${node_major}.x" | bash -
-  apt-get install -y nodejs
+  if curl -fsSL "https://deb.nodesource.com/setup_${node_major}.x" | bash -; then
+    apt-get install -y nodejs
+  else
+    echo "NodeSource could not be reached, falling back to Ubuntu nodejs package." >&2
+    apt-get update
+    apt-get install -y nodejs npm
+  fi
 fi
 
 mkdir -p "$install_root"
