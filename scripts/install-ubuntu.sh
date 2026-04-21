@@ -73,6 +73,23 @@ fi
 
 server_ip="$(detect_server_ip)"
 
+# Print URLs immediately so they are always visible, even if a later step fails.
+print_urls() {
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  LocalMesh server IP detected: ${server_ip}"
+  echo ""
+  echo "  Dashboard:            http://${server_ip}:2690"
+  echo "  AdGuard Home:         http://${server_ip}:3000"
+  echo "  Nginx Proxy Manager:  http://${server_ip}:81"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+}
+print_urls
+
+# Re-print URLs on exit (success or failure) so they are never lost in scroll.
+trap print_urls EXIT
+
 configure_dns_if_needed
 
 apt-get update
@@ -90,6 +107,14 @@ fi
 # ── Deploy source to install root ────────────────────────────────────────────
 mkdir -p "$install_root"
 rsync -a --delete --exclude '.git' "$repo_root/" "$install_root/"
+
+# Make install_root a proper git repo so the container can run git pull later.
+if [[ ! -d "$install_root/.git" ]]; then
+  git -C "$install_root" init -b main
+  git -C "$install_root" remote add origin https://github.com/Emetra0/LocalMesh.git || true
+  git -C "$install_root" fetch --depth=1 origin main 2>/dev/null || true
+  git -C "$install_root" reset --soft FETCH_HEAD 2>/dev/null || true
+fi
 
 # Create persistent data directories
 mkdir -p \
@@ -157,11 +182,10 @@ echo "╔═══════════════════════�
 echo "║      LocalMesh installed successfully    ║"
 echo "╚══════════════════════════════════════════╝"
 echo ""
-echo "  Dashboard:            http://${server_ip}:2690"
-echo "  AdGuard Home:         http://${server_ip}:3000"
-echo "  Nginx Proxy Manager:  http://${server_ip}:81"
-echo ""
 echo "After completing first-run setup in AdGuard and NPM, edit"
 echo "  /opt/localmesh/.env.production"
 echo "to add your credentials, then run:  localmesh restart"
-echo ""
+
+# Cancel the EXIT trap so we don't double-print
+trap - EXIT
+print_urls
