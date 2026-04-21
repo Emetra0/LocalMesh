@@ -1,0 +1,19 @@
+{
+  "name": "localmesh",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @localmesh/api && npm run build -w @localmesh/dashboard",
+    "dev": "concurrently \"npm run dev -w @localmesh/api\" \"npm run dev -w @localmesh/dashboard\"",
+    "lint": "npm run lint -ws --if-present",
+    "typecheck": "npm run typecheck -ws --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.6.3"
+  }
+}

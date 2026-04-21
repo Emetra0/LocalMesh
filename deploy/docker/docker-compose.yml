@@ -1,0 +1,36 @@
+services:
+  adguard:
+    image: adguard/adguardhome:latest
+    container_name: localmesh-adguard
+    restart: unless-stopped
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "3000:3000/tcp"
+      - "8081:80/tcp"
+    volumes:
+      - ../data/adguard/work:/opt/adguardhome/work
+      - ../data/adguard/conf:/opt/adguardhome/conf
+
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: localmesh-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - ../data/nginx/data:/data
+      - ../data/nginx/letsencrypt:/etc/letsencrypt
+
+  mkcert:
+    build:
+      context: ./mkcert
+    container_name: localmesh-mkcert
+    restart: unless-stopped
+    environment:
+      LOCALMESH_CA_DIR: /ca
+    volumes:
+      - ../ca:/ca
+      - ../certs:/certs

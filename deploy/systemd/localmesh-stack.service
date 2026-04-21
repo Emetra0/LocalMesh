@@ -1,0 +1,15 @@
+[Unit]
+Description=LocalMesh Docker stack
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/localmesh/docker
+ExecStart=/usr/bin/docker compose -f /opt/localmesh/docker/docker-compose.yml up -d --build
+ExecStop=/usr/bin/docker compose -f /opt/localmesh/docker/docker-compose.yml down
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
