@@ -17,9 +17,14 @@ FROM node:22-alpine
 
 # git  → git pull during self-update
 # docker-cli → rebuild/restart self via Docker socket
-# mkcert + nss-tools → generate TLS certs signed by the local CA
+# nss  → NSS cert store used by mkcert -install
 # bash → entrypoint + scripts
-RUN apk add --no-cache git docker-cli bash mkcert nss-tools ca-certificates
+# mkcert is not in Alpine repos — download the static binary from GitHub
+RUN apk add --no-cache git docker-cli bash nss ca-certificates curl \
+ && MKCERT_VERSION=v1.4.4 \
+ && curl -fsSL "https://github.com/FiloSottile/mkcert/releases/download/${MKCERT_VERSION}/mkcert-${MKCERT_VERSION}-linux-amd64" \
+      -o /usr/local/bin/mkcert \
+ && chmod +x /usr/local/bin/mkcert
 
 WORKDIR /app
 
