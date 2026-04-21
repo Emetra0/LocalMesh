@@ -1,43 +1,36 @@
 import { spawn } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { appConfig } from '../config.js';
 import type { DomainProvisionRequest, DomainProvisionResult, ServiceIntegrationStatus } from '../types.js';
 import { ensureDnsRewrite } from './adguardService.js';
 import { createCustomCertificate, upsertProxyHost } from './nginxProxyManagerService.js';
 
-function resolveCliPath() {
-  if (fs.existsSync(appConfig.cliPath)) {
-    return appConfig.cliPath;
-  }
-
-  return path.join(appConfig.repoRoot, 'deploy', 'bin', 'localmesh');
-}
-
-async function runLocalmeshCommand(args: string[]) {
-  const cliPath = resolveCliPath();
+/**
+ * Generate a TLS cert for `domain` using mkcert (which is bundled in the
+ * Docker image and has access to the local CA at LOCALMESH_CA_DIR).
+ */
+async function generateCert(domain: string): Promise<void> {
+  const certFile = path.join(appConfig.certsDir, `${domain}.pem`);
+  const keyFile = path.join(appConfig.certsDir, `${domain}-key.pem`);
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(cliPath, args, {
-      cwd: appConfig.repoRoot,
-      env: {
-        ...process.env,
-        LOCALMESH_INSTALL_ROOT: appConfig.installRoot,
-        LOCALMESH_COMPOSE_FILE: appConfig.composeFile,
-        LOCALMESH_REPO_ROOT: appConfig.repoRoot,
+    const child = spawn(
+      'mkcert',
+      ['-cert-file', certFile, '-key-file', keyFile, domain],
+      {
+        env: { ...process.env, CAROOT: appConfig.caDir },
+        stdio: 'ignore',
+        shell: false,
       },
-      stdio: 'ignore',
-      shell: false,
-    });
+    );
 
     child.on('error', reject);
     child.on('close', (code) => {
       if (code === 0) {
         resolve();
-        return;
+      } else {
+        reject(new Error(`mkcert exited with code ${code}`));
       }
-
-      reject(new Error(`localmesh ${args.join(' ')} exited with code ${code}`));
     });
   });
 }
@@ -63,7 +56,7 @@ export async function provisionDomain(request: DomainProvisionRequest): Promise<
   const keyFileName = `${request.domain}-key.pem`;
 
   if (request.ssl) {
-    await runLocalmeshCommand(['cert', 'generate', request.domain]);
+    await generateCert(request.domain);
     certificateId = await createCustomCertificate(request.domain, certFileName, keyFileName);
   }
 

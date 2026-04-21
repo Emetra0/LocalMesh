@@ -16,11 +16,14 @@ export const appConfig = {
   cliPath: process.env.LOCALMESH_CLI_PATH ?? '/usr/local/bin/localmesh',
   installRoot: defaultInstallRoot,
   certsDir: process.env.LOCALMESH_CERTS_DIR ?? path.join(defaultInstallRoot, 'certs'),
+  // CA directory used by mkcert (inside Docker: /ca; bare-metal: <install-root>/ca)
+  caDir: process.env.LOCALMESH_CA_DIR ?? path.join(defaultInstallRoot, 'ca'),
   updateToken: process.env.LOCALMESH_UPDATE_TOKEN ?? '',
+  // When running inside Docker these are overridden with container service names
   adguardUrl: process.env.LOCALMESH_ADGUARD_URL ?? 'http://127.0.0.1:3000',
   adguardUsername: process.env.LOCALMESH_ADGUARD_USERNAME ?? '',
   adguardPassword: process.env.LOCALMESH_ADGUARD_PASSWORD ?? '',
-  npmApiUrl: process.env.LOCALMESH_NPM_API_URL ?? 'http://127.0.0.1:81/api',
+  npmApiUrl: process.env.LOCALMESH_NPM_API_URL ?? 'http://127.0.0.1:81',
   npmIdentity: process.env.LOCALMESH_NPM_IDENTITY ?? '',
   npmSecret: process.env.LOCALMESH_NPM_SECRET ?? '',
 };

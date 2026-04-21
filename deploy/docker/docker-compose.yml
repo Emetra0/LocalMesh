@@ -1,8 +1,13 @@
+networks:
+  localmesh:
+    driver: bridge
+
 services:
   adguard:
     image: adguard/adguardhome:latest
     container_name: localmesh-adguard
     restart: unless-stopped
+    networks: [localmesh]
     ports:
       - "53:53/tcp"
       - "53:53/udp"
@@ -16,6 +21,7 @@ services:
     image: jc21/nginx-proxy-manager:latest
     container_name: localmesh-nginx
     restart: unless-stopped
+    networks: [localmesh]
     ports:
       - "80:80"
       - "81:81"
@@ -24,13 +30,36 @@ services:
       - ../data/nginx/data:/data
       - ../data/nginx/letsencrypt:/etc/letsencrypt
 
-  mkcert:
+  # LocalMesh dashboard + API — built from the repo root Dockerfile.
+  # All sibling services are reachable via Docker-internal hostnames.
+  localmesh:
     build:
-      context: ./mkcert
-    container_name: localmesh-mkcert
+      context: ..
+      dockerfile: Dockerfile
+    image: localmesh-app:latest
+    container_name: localmesh-app
     restart: unless-stopped
+    networks: [localmesh]
+    ports:
+      - "${LOCALMESH_API_PORT:-2690}:2690"
+    env_file:
+      - ../.env.production
     environment:
-      LOCALMESH_CA_DIR: /ca
+      # Docker-internal service URLs override whatever is in .env.production
+      - LOCALMESH_ADGUARD_URL=http://adguard:3000
+      - LOCALMESH_NPM_API_URL=http://nginx-proxy-manager:81
+      - LOCALMESH_CERTS_DIR=/certs
+      - LOCALMESH_CA_DIR=/ca
     volumes:
+      # Docker socket — lets LocalMesh rebuild/restart itself on update
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persistent cert + CA storage shared with the host
       - ../ca:/ca
       - ../certs:/certs
+      # Runtime state (update history, lock files)
+      - ../data/localmesh:/app/apps/api/.runtime
+      # Host source tree — lets git pull + docker compose rebuild work from inside the container
+      - /opt/localmesh:/opt/localmesh
+    depends_on:
+      - adguard
+      - nginx-proxy-manager

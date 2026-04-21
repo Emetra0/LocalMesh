@@ -3,27 +3,19 @@ set -euo pipefail
 
 install_root="${LOCALMESH_INSTALL_ROOT:-/opt/localmesh}"
 compose_file="${LOCALMESH_COMPOSE_FILE:-$install_root/docker/docker-compose.yml}"
-service_name="${LOCALMESH_SERVICE_NAME:-localmesh.service}"
-stack_service_name="${LOCALMESH_STACK_SERVICE_NAME:-localmesh-stack.service}"
-repo_root="${LOCALMESH_REPO_ROOT:-$install_root}"
-backup_dir="$install_root"
-
-if [[ ! -f "$compose_file" && -f "$repo_root/deploy/docker/docker-compose.yml" ]]; then
-  compose_file="$repo_root/deploy/docker/docker-compose.yml"
-fi
 
 usage() {
   cat <<'EOF'
 Usage: localmesh <command>
 
 Commands:
-  status
-  restart
-  logs <service>
-  cert generate <domain>
-  update
-  backup
-  restore <backup.tar.gz>
+  status               Show status of all LocalMesh services
+  restart              Restart the entire LocalMesh stack
+  logs <service>       Tail logs for a service (api | adguard | nginx | all)
+  cert generate <domain>   Generate a TLS cert for a local domain
+  update               Pull latest code and rebuild the stack
+  backup               Archive data to a timestamped tarball
+  restore <archive>    Restore data from a tarball
 EOF
 }
 
@@ -36,43 +28,49 @@ require_arg() {
 
 case "${1:-}" in
   status)
-    systemctl --no-pager --full status "$service_name" || true
-    systemctl --no-pager --full status "$stack_service_name" || true
     docker compose -f "$compose_file" ps
     ;;
+
   restart)
-    systemctl restart "$stack_service_name"
-    systemctl restart "$service_name"
+    docker compose -f "$compose_file" restart
     ;;
+
   logs)
     require_arg logs "${2:-}"
     case "$2" in
+      api)
+        docker logs --tail 200 -f localmesh-app
+        ;;
       adguard)
         docker logs --tail 200 -f localmesh-adguard
         ;;
       nginx)
         docker logs --tail 200 -f localmesh-nginx
         ;;
-      mkcert)
-        docker logs --tail 200 -f localmesh-mkcert
+      all)
+        docker compose -f "$compose_file" logs --tail 100 -f
         ;;
       *)
-        echo "Unknown service: $2" >&2
+        echo "Unknown service: $2 (valid: api | adguard | nginx | all)" >&2
         exit 1
         ;;
     esac
     ;;
+
   cert)
     require_arg cert "${2:-}"
     require_arg cert "${3:-}"
     case "$2" in
       generate)
         domain="$3"
-        docker exec -e CAROOT=/ca localmesh-mkcert \
+        # Run mkcert inside the localmesh container where the CA lives
+        docker exec \
+          -e CAROOT=/ca \
+          localmesh-app \
           mkcert \
-          -cert-file "/certs/${domain}.pem" \
-          -key-file "/certs/${domain}-key.pem" \
-          "$domain"
+            -cert-file "/certs/${domain}.pem" \
+            -key-file "/certs/${domain}-key.pem" \
+            "$domain"
         ;;
       *)
         echo "Unknown cert command: $2" >&2
@@ -80,30 +78,34 @@ case "${1:-}" in
         ;;
     esac
     ;;
+
   update)
-    cd "$repo_root"
-    git fetch --all --prune
-    git pull --ff-only || true
-    npm install
-    npm run build
-    docker compose -f "$compose_file" pull
-    systemctl restart "$stack_service_name"
-    systemctl restart "$service_name"
+    echo "Pulling latest code..."
+    git -C "$install_root" fetch --all --prune
+    git -C "$install_root" pull --ff-only || true
+
+    echo "Rebuilding LocalMesh image..."
+    docker compose -f "$compose_file" build localmesh
+
+    echo "Restarting LocalMesh (AdGuard and NPM keep running)..."
+    docker compose -f "$compose_file" up -d --no-deps localmesh
     ;;
+
   backup)
     timestamp="$(date +%Y%m%d-%H%M%S)"
-    archive="$backup_dir/localmesh-backup-$timestamp.tar.gz"
+    archive="$install_root/localmesh-backup-$timestamp.tar.gz"
     tar -czf "$archive" \
       -C "$install_root" \
       ca certs data docker/docker-compose.yml
     echo "$archive"
     ;;
+
   restore)
     require_arg restore "${2:-}"
     tar -xzf "$2" -C "$install_root"
-    systemctl restart "$stack_service_name"
-    systemctl restart "$service_name"
+    docker compose -f "$compose_file" restart
     ;;
+
   *)
     usage
     exit 1

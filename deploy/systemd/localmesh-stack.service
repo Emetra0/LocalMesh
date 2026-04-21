@@ -1,5 +1,9 @@
+# Superseded by localmesh.service — kept for upgrade compatibility.
+# If this unit is active on your system, disable it and enable localmesh.service instead:
+#   systemctl disable --now localmesh-stack.service
+#   systemctl enable --now localmesh.service
 [Unit]
-Description=LocalMesh Docker stack
+Description=LocalMesh Docker stack (deprecated: use localmesh.service)
 After=docker.service network-online.target
 Requires=docker.service
 Wants=network-online.target

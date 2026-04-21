@@ -3,7 +3,6 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 install_root="${LOCALMESH_INSTALL_ROOT:-/opt/localmesh}"
-node_major="${LOCALMESH_NODE_MAJOR:-22}"
 env_file="$install_root/.env.production"
 
 detect_server_ip() {
@@ -88,37 +87,39 @@ if ! command -v docker >/dev/null 2>&1; then
   apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 
-if ! command -v node >/dev/null 2>&1; then
-  if curl -fsSL "https://deb.nodesource.com/setup_${node_major}.x" | bash -; then
-    apt-get install -y nodejs
-  else
-    echo "NodeSource could not be reached, falling back to Ubuntu nodejs package." >&2
-    apt-get update
-    apt-get install -y nodejs npm
-  fi
-fi
-
+# ── Deploy source to install root ────────────────────────────────────────────
 mkdir -p "$install_root"
 rsync -a --delete --exclude '.git' "$repo_root/" "$install_root/"
-mkdir -p "$install_root/ca" "$install_root/certs" "$install_root/data" "$install_root/docker"
-cp "$install_root/deploy/docker/docker-compose.yml" "$install_root/docker/docker-compose.yml"
-rsync -a --delete "$install_root/deploy/docker/mkcert/" "$install_root/docker/mkcert/"
 
+# Create persistent data directories
+mkdir -p \
+  "$install_root/ca" \
+  "$install_root/certs" \
+  "$install_root/data/adguard/work" \
+  "$install_root/data/adguard/conf" \
+  "$install_root/data/nginx/data" \
+  "$install_root/data/nginx/letsencrypt" \
+  "$install_root/data/localmesh" \
+  "$install_root/docker"
+
+cp "$install_root/deploy/docker/docker-compose.yml" "$install_root/docker/docker-compose.yml"
+
+# ── Generate .env.production on first install ─────────────────────────────────
 if [[ ! -f "$env_file" ]]; then
   admin_token="$(openssl rand -hex 24)"
   cat > "$env_file" <<EOF
 LOCALMESH_SERVER_IP=$server_ip
 LOCALMESH_API_PORT=2690
-LOCALMESH_DASHBOARD_PORT=2690
 LOCALMESH_INSTALL_ROOT=/opt/localmesh
 LOCALMESH_COMPOSE_FILE=/opt/localmesh/docker/docker-compose.yml
 LOCALMESH_CLI_PATH=/usr/local/bin/localmesh
 LOCALMESH_CERTS_DIR=/opt/localmesh/certs
+LOCALMESH_CA_DIR=/opt/localmesh/ca
 LOCALMESH_UPDATE_TOKEN=$admin_token
-LOCALMESH_ADGUARD_URL=http://127.0.0.1:3000
-LOCALMESH_NPM_API_URL=http://127.0.0.1:81/api
+# Fill in your AdGuard Home credentials after first-run setup at http://${server_ip}:3000
 # LOCALMESH_ADGUARD_USERNAME=
 # LOCALMESH_ADGUARD_PASSWORD=
+# Fill in your Nginx Proxy Manager credentials after first-run setup at http://${server_ip}:81
 # LOCALMESH_NPM_IDENTITY=
 # LOCALMESH_NPM_SECRET=
 EOF
@@ -129,29 +130,38 @@ if [[ -z "$current_server_ip" || "$current_server_ip" == "127.0.0.1" ]]; then
   upsert_env_value "LOCALMESH_SERVER_IP" "$server_ip"
 fi
 
-chmod +x "$install_root/deploy/bin/localmesh" "$install_root/scripts/install-ubuntu.sh" "$install_root/deploy/docker/mkcert/entrypoint.sh"
+# ── Install CLI helper ────────────────────────────────────────────────────────
+chmod +x "$install_root/deploy/bin/localmesh" "$install_root/scripts/install-ubuntu.sh"
 ln -sf "$install_root/deploy/bin/localmesh" /usr/local/bin/localmesh
 
-cd "$install_root"
-npm install
-npm run build
-
+# ── Build and start the entire stack ─────────────────────────────────────────
+echo "Building LocalMesh Docker image (this may take a few minutes on first run)..."
 docker compose -f "$install_root/docker/docker-compose.yml" up -d --build
-install -m 0644 "$install_root/deploy/systemd/localmesh.service" /etc/systemd/system/localmesh.service
-install -m 0644 "$install_root/deploy/systemd/localmesh-stack.service" /etc/systemd/system/localmesh-stack.service
-systemctl daemon-reload
-systemctl enable --now localmesh-stack.service
-systemctl enable --now localmesh.service
 
+# ── Install and enable systemd unit ──────────────────────────────────────────
+install -m 0644 "$install_root/deploy/systemd/localmesh.service" /etc/systemd/system/localmesh.service
+systemctl daemon-reload
+systemctl enable localmesh.service
+
+# ── Firewall ──────────────────────────────────────────────────────────────────
 ufw allow 53/tcp || true
 ufw allow 53/udp || true
-ufw allow 80/tcp || true
-ufw allow 81/tcp || true
+ufw allow 80/tcp  || true
+ufw allow 81/tcp  || true
 ufw allow 443/tcp || true
 ufw allow 2690/tcp || true
 ufw allow 3000/tcp || true
 
-echo "LocalMesh installed at $install_root"
-echo "Dashboard: http://${server_ip}:2690"
-echo "AdGuard Home: http://${server_ip}:3000"
-echo "Nginx Proxy Manager: http://${server_ip}:81"
+echo ""
+echo "╔══════════════════════════════════════════╗"
+echo "║      LocalMesh installed successfully    ║"
+echo "╚══════════════════════════════════════════╝"
+echo ""
+echo "  Dashboard:            http://${server_ip}:2690"
+echo "  AdGuard Home:         http://${server_ip}:3000"
+echo "  Nginx Proxy Manager:  http://${server_ip}:81"
+echo ""
+echo "After completing first-run setup in AdGuard and NPM, edit"
+echo "  /opt/localmesh/.env.production"
+echo "to add your credentials, then run:  localmesh restart"
+echo ""

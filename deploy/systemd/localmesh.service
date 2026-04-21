@@ -1,22 +1,16 @@
 [Unit]
-Description=LocalMesh dashboard and API
-After=network-online.target docker.service
-Wants=network-online.target docker.service
+Description=LocalMesh all-in-one stack (AdGuard + NPM + Dashboard)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
 
 [Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/localmesh
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/localmesh/docker
 EnvironmentFile=-/opt/localmesh/.env.production
-Environment=NODE_ENV=production
-Environment=LOCALMESH_API_PORT=2690
-Environment=LOCALMESH_DASHBOARD_PORT=2690
-Environment=LOCALMESH_INSTALL_ROOT=/opt/localmesh
-Environment=LOCALMESH_COMPOSE_FILE=/opt/localmesh/docker/docker-compose.yml
-Environment=LOCALMESH_CLI_PATH=/usr/local/bin/localmesh
-ExecStart=/usr/bin/node /opt/localmesh/apps/api/dist/server.js
-Restart=always
-RestartSec=5
+ExecStart=/usr/bin/docker compose -f /opt/localmesh/docker/docker-compose.yml up -d --build
+ExecStop=/usr/bin/docker compose -f /opt/localmesh/docker/docker-compose.yml down
 
 [Install]
 WantedBy=multi-user.target
