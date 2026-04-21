@@ -53,6 +53,7 @@ The installer will:
 - install and enable the LocalMesh systemd units
 - create `/opt/localmesh/.env.production` if it does not already exist
 - create a random `LOCALMESH_UPDATE_TOKEN` for protected actions in the dashboard
+- auto-detect the server IP and print the dashboard and service URLs in the terminal
 
 ### Configure Service Credentials
 
@@ -74,6 +75,8 @@ sudo systemctl restart localmesh.service
 ```
 
 ### First Access
+
+After a successful install, the installer prints the real service URLs automatically. You should not need to run a separate IP discovery command during the normal install flow.
 
 - Dashboard: `http://SERVER_IP:2690`
 - AdGuard Home: `http://SERVER_IP:3000`
