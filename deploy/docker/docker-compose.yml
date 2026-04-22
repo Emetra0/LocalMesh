@@ -9,10 +9,12 @@ services:
     restart: unless-stopped
     networks: [localmesh]
     ports:
+      # DNS — must be reachable by LAN devices
       - "53:53/tcp"
       - "53:53/udp"
-      - "3000:3000/tcp"
-      - "8081:80/tcp"
+      # Admin UI (3000) intentionally NOT exposed to host.
+      # Managed exclusively through the LocalMesh dashboard on :2690.
+
     volumes:
       - ../data/adguard/work:/opt/adguardhome/work
       - ../data/adguard/conf:/opt/adguardhome/conf
@@ -23,15 +25,16 @@ services:
     restart: unless-stopped
     networks: [localmesh]
     ports:
+      # Proxy traffic — must be reachable by LAN devices
       - "80:80"
-      - "81:81"
       - "443:443"
+      # Admin UI (81) intentionally NOT exposed to host.
+      # Managed exclusively through the LocalMesh dashboard on :2690.
     volumes:
       - ../data/nginx/data:/data
       - ../data/nginx/letsencrypt:/etc/letsencrypt
 
-  # LocalMesh dashboard + API — built from the repo root Dockerfile.
-  # All sibling services are reachable via Docker-internal hostnames.
+  # LocalMesh dashboard + API — the only admin interface.
   localmesh:
     build:
       context: ..
@@ -41,24 +44,20 @@ services:
     restart: unless-stopped
     networks: [localmesh]
     ports:
-      - "${LOCALMESH_API_PORT:-2690}:2690"
+      - "2690:2690"
     env_file:
       - ../.env.production
     environment:
-      # Docker-internal service URLs override whatever is in .env.production
+      # Docker-internal service URLs (container-to-container, no host ports needed)
       - LOCALMESH_ADGUARD_URL=http://adguard:3000
       - LOCALMESH_NPM_API_URL=http://nginx-proxy-manager:81
       - LOCALMESH_CERTS_DIR=/certs
       - LOCALMESH_CA_DIR=/ca
     volumes:
-      # Docker socket — lets LocalMesh rebuild/restart itself on update
       - /var/run/docker.sock:/var/run/docker.sock
-      # Persistent cert + CA storage shared with the host
       - ../ca:/ca
       - ../certs:/certs
-      # Runtime state (update history, lock files)
       - ../data/localmesh:/app/apps/api/.runtime
-      # Host source tree — lets git pull + docker compose rebuild work from inside the container
       - /opt/localmesh:/opt/localmesh
     depends_on:
       - adguard

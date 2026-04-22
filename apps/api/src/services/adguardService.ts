@@ -90,3 +90,15 @@ export async function ensureDnsRewrite(domain: string, answer: string) {
 
   return { status: 'updated' as const, answer };
 }
+
+export async function listDnsRewrites() {
+  return (await adguardRequest('/control/rewrite/list')) as RewriteEntry[];
+}
+
+export async function deleteDnsRewrite(domain: string, answer: string) {
+  await adguardRequest('/control/rewrite/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ domain, answer }),
+  });
+}

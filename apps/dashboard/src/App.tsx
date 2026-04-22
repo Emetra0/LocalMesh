@@ -1,4 +1,6 @@
-import { FormEvent, useEffect, useState } from 'react';
+﻿import { FormEvent, useEffect, useState } from 'react';
+
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface HealthResponse {
   serverIp: string;
@@ -7,16 +9,26 @@ interface HealthResponse {
   installRoot: string;
   composeFile: string;
   integrations: {
-    adguard: {
-      configured: boolean;
-      url: string;
-    };
-    nginxProxyManager: {
-      configured: boolean;
-      url: string;
-    };
+    adguard: { configured: boolean; url: string };
+    nginxProxyManager: { configured: boolean; url: string };
     updateAuthRequired: boolean;
   };
+}
+
+interface DnsRewrite {
+  domain: string;
+  answer: string;
+}
+
+interface ProxyHost {
+  id: number;
+  domain_names: string[];
+  forward_scheme: string;
+  forward_host: string;
+  forward_port: number;
+  ssl_forced: boolean;
+  enabled: boolean;
+  certificate_id: number;
 }
 
 interface UpdateCommit {
@@ -50,27 +62,7 @@ interface UpdateResponse {
       commits: UpdateCommit[];
       error?: string;
     }>;
-    error?: string;
   };
-}
-
-interface ProvisionResponse {
-  domain: string;
-  dns: {
-    status: 'created' | 'updated' | 'unchanged';
-    answer: string;
-  };
-  certificate: {
-    status: 'created' | 'skipped';
-    certificateId: number | null;
-    certificatePath?: string;
-    keyPath?: string;
-  };
-  proxy: {
-    status: 'created' | 'updated';
-    hostId: number;
-  };
-  notes: string[];
 }
 
 interface DomainFormState {
@@ -80,28 +72,27 @@ interface DomainFormState {
   ssl: boolean;
 }
 
-const initialDomainState: DomainFormState = {
-  domain: '',
-  appIp: '',
-  appPort: '',
-  ssl: true,
-};
-
 const adminTokenStorageKey = 'localmesh-admin-token';
+const initialDomainState: DomainFormState = { domain: '', appIp: '', appPort: '', ssl: true };
 
 function formatHash(hash: string | null | undefined) {
   return hash ? hash.slice(0, 7) : 'n/a';
 }
 
+// â”€â”€ App â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [updateData, setUpdateData] = useState<UpdateResponse | null>(null);
+  const [dnsRewrites, setDnsRewrites] = useState<DnsRewrite[]>([]);
+  const [proxyHosts, setProxyHosts] = useState<ProxyHost[]>([]);
   const [domainForm, setDomainForm] = useState<DomainFormState>(initialDomainState);
-  const [provisionResult, setProvisionResult] = useState<ProvisionResponse | null>(null);
-  const [provisionMessage, setProvisionMessage] = useState<string>('');
+  const [provisionMsg, setProvisionMsg] = useState('');
   const [isProvisioning, setIsProvisioning] = useState(false);
-  const [lastUpdateMessage, setLastUpdateMessage] = useState<string>('');
-  const [adminToken, setAdminToken] = useState<string>(() => window.localStorage.getItem(adminTokenStorageKey) ?? '');
+  const [updateMsg, setUpdateMsg] = useState('');
+  const [adminToken, setAdminToken] = useState<string>(
+    () => window.localStorage.getItem(adminTokenStorageKey) ?? '',
+  );
 
   useEffect(() => {
     window.localStorage.setItem(adminTokenStorageKey, adminToken);
@@ -109,62 +100,75 @@ export default function App() {
 
   async function loadHealth() {
     try {
-      const response = await fetch('/api/health');
-      const payload = (await response.json()) as HealthResponse;
-      setHealth(payload);
-    } catch {
-      // Swallow — API may still be starting
-    }
+      const res = await fetch('/api/health');
+      setHealth((await res.json()) as HealthResponse);
+    } catch { /* starting up */ }
   }
 
   async function loadUpdateStatus() {
     try {
-      const response = await fetch('/api/update/status');
-      const payload = (await response.json()) as UpdateResponse;
-      if (payload.summary && payload.runtime) {
-        setUpdateData(payload);
-      }
-    } catch {
-      // Swallow — API may still be starting
-    }
+      const res = await fetch('/api/update/status');
+      const payload = (await res.json()) as UpdateResponse;
+      if (payload.summary && payload.runtime) setUpdateData(payload);
+    } catch { /* starting up */ }
+  }
+
+  async function loadDnsRewrites() {
+    try {
+      const res = await fetch('/api/dns/rewrites');
+      if (res.ok) setDnsRewrites((await res.json()) as DnsRewrite[]);
+    } catch { /* adguard not ready yet */ }
+  }
+
+  async function loadProxyHosts() {
+    try {
+      const res = await fetch('/api/proxy/hosts');
+      if (res.ok) setProxyHosts((await res.json()) as ProxyHost[]);
+    } catch { /* npm not ready yet */ }
+  }
+
+  function authHeaders() {
+    return { 'x-localmesh-admin-token': adminToken };
   }
 
   useEffect(() => {
     void loadHealth();
     void loadUpdateStatus();
-
-    const pollId = window.setInterval(() => {
+    void loadDnsRewrites();
+    void loadProxyHosts();
+    const id = window.setInterval(() => {
       void loadUpdateStatus();
-    }, 5000);
-
-    return () => window.clearInterval(pollId);
+      void loadDnsRewrites();
+      void loadProxyHosts();
+    }, 8000);
+    return () => window.clearInterval(id);
   }, []);
 
-  async function handleUpdateClick() {
-    const response = await fetch('/api/update', {
-      method: 'POST',
-      headers: {
-        'x-localmesh-admin-token': adminToken,
-      },
+  async function handleDeleteDns(domain: string, answer: string) {
+    await fetch('/api/dns/rewrites', {
+      method: 'DELETE',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, answer }),
     });
-    const payload = (await response.json()) as { accepted: boolean; message: string };
-    setLastUpdateMessage(payload.message);
-    void loadUpdateStatus();
+    void loadDnsRewrites();
+  }
+
+  async function handleDeleteProxy(id: number) {
+    await fetch(`/api/proxy/hosts/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    void loadProxyHosts();
   }
 
   async function handleDomainSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setProvisionMessage('');
-    setProvisionResult(null);
+    setProvisionMsg('');
     setIsProvisioning(true);
-
     try {
-      const response = await fetch('/api/domains/provision', {
+      const res = await fetch('/api/domains/provision', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-localmesh-admin-token': adminToken,
-        },
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           domain: domainForm.domain,
           appIp: domainForm.appIp,
@@ -172,168 +176,203 @@ export default function App() {
           ssl: domainForm.ssl,
         }),
       });
-
-      const payload = (await response.json()) as ProvisionResponse | { error: string };
-      if (!response.ok) {
-        throw new Error('error' in payload ? payload.error : 'Provisioning failed');
-      }
-
-      setProvisionResult(payload as ProvisionResponse);
-      setProvisionMessage(`Provisioned ${domainForm.domain} through AdGuard Home and Nginx Proxy Manager.`);
-    } catch (error) {
-      setProvisionMessage(error instanceof Error ? error.message : 'Provisioning failed');
+      const payload = await res.json() as { error?: string; domain?: string };
+      if (!res.ok) throw new Error(payload.error ?? 'Provisioning failed');
+      setProvisionMsg(`Provisioned ${payload.domain ?? domainForm.domain} â€” DNS + proxy route created.`);
+      setDomainForm(initialDomainState);
+      void loadDnsRewrites();
+      void loadProxyHosts();
+    } catch (err) {
+      setProvisionMsg(err instanceof Error ? err.message : 'Provisioning failed');
     } finally {
       setIsProvisioning(false);
     }
   }
 
-  const setupSteps = [
-    `Dashboard -> DNS Entries -> Add ${domainForm.domain || '<domain>'} to ${health?.serverIp ?? '<server-ip>'}`,
-    domainForm.ssl ? `Dashboard -> SSL Certs -> Generate certificate for ${domainForm.domain || '<domain>'}` : 'SSL disabled for this route',
-    `Dashboard -> Proxy Routes -> Add ${domainForm.domain || '<domain>'} to ${domainForm.appIp || '<app-ip>'}:${domainForm.appPort || '<port>'}${domainForm.ssl ? ' with SSL enabled' : ''}`,
-  ];
+  async function handleUpdateClick() {
+    const res = await fetch('/api/update', { method: 'POST', headers: authHeaders() });
+    const payload = await res.json() as { message: string };
+    setUpdateMsg(payload.message);
+    void loadUpdateStatus();
+  }
+
+  const isRunning = updateData?.runtime?.status === 'running';
 
   return (
     <div className="shell">
       <header className="hero">
         <div>
-          <p className="eyebrow">LocalMesh Administrator AI</p>
-          <h1>Ubuntu-first local network control plane</h1>
+          <p className="eyebrow">LocalMesh Control Plane</p>
+          <h1>Network admin dashboard</h1>
           <p className="lede">
-            Manage DNS, proxying, certificates, updates, and install automation for AdGuard Home,
-            Nginx Proxy Manager, mkcert, and the LocalMesh dashboard.
+            One interface to manage DNS (AdGuard), reverse proxy (Nginx Proxy Manager),
+            TLS certificates (mkcert), and LocalMesh updates â€” all without touching
+            the individual service UIs.
           </p>
         </div>
         <div className="hero-card">
           <span>Dashboard</span>
-          <strong>{health ? `http://${health.serverIp}:${health.dashboardPort}` : 'Loading'}</strong>
-          <span>Install root: {health?.installRoot ?? '/opt/localmesh'}</span>
+          <strong>http://{health?.serverIp ?? 'â€¦'}:2690</strong>
+          <span>DNS: {health?.serverIp ?? 'â€¦'}:53</span>
+          <span>Proxy: {health?.serverIp ?? 'â€¦'}:80 / 443</span>
+          <span className={health?.integrations.adguard.configured ? 'ok' : 'warn'}>
+            AdGuard: {health?.integrations.adguard.configured ? 'configured' : 'credentials missing'}
+          </span>
+          <span className={health?.integrations.nginxProxyManager.configured ? 'ok' : 'warn'}>
+            NPM: {health?.integrations.nginxProxyManager.configured ? 'configured' : 'credentials missing'}
+          </span>
         </div>
       </header>
 
+      {/* Admin token */}
+      <div className="token-banner">
+        <label>
+          Admin token
+          <input
+            value={adminToken}
+            onChange={(e) => setAdminToken(e.target.value)}
+            placeholder="Paste LOCALMESH_UPDATE_TOKEN from /opt/localmesh/.env.production"
+          />
+        </label>
+        <p className="hint-text">
+          {health?.integrations.updateAuthRequired
+            ? 'Required for provisioning and updates.'
+            : 'No token configured on this server â€” all actions are open.'}
+        </p>
+      </div>
+
       <main className="grid">
+
+        {/* â”€â”€ Provision new domain â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <section className="panel wide">
           <div className="panel-head">
             <div>
-              <p className="section-tag">Quick Setup</p>
-              <h2>Provision a new domain</h2>
+              <p className="section-tag">Add domain</p>
+              <h2>Provision a new route</h2>
             </div>
-            <p>LocalMesh can now push the DNS rewrite, optional mkcert certificate, and proxy route directly.</p>
+            <p>Creates DNS rewrite in AdGuard, optional mkcert TLS cert, and proxy host in NPM â€” in one click.</p>
           </div>
           <form className="domain-form" onSubmit={handleDomainSubmit}>
             <label>
               Domain name
-              <input required value={domainForm.domain} onChange={(event) => setDomainForm({ ...domainForm, domain: event.target.value })} placeholder="app.sky" />
+              <input required value={domainForm.domain}
+                onChange={(e) => setDomainForm({ ...domainForm, domain: e.target.value })}
+                placeholder="myapp.local" />
             </label>
             <label>
-              App local IP
-              <input required value={domainForm.appIp} onChange={(event) => setDomainForm({ ...domainForm, appIp: event.target.value })} placeholder="10.0.0.50" />
+              App IP
+              <input required value={domainForm.appIp}
+                onChange={(e) => setDomainForm({ ...domainForm, appIp: e.target.value })}
+                placeholder="10.0.0.50" />
             </label>
             <label>
               App port
-              <input required value={domainForm.appPort} onChange={(event) => setDomainForm({ ...domainForm, appPort: event.target.value })} placeholder="3001" />
+              <input required value={domainForm.appPort}
+                onChange={(e) => setDomainForm({ ...domainForm, appPort: e.target.value })}
+                placeholder="8080" />
             </label>
             <label className="toggle-row">
-              <input type="checkbox" checked={domainForm.ssl} onChange={(event) => setDomainForm({ ...domainForm, ssl: event.target.checked })} />
-              Enable SSL for green padlock
+              <input type="checkbox" checked={domainForm.ssl}
+                onChange={(e) => setDomainForm({ ...domainForm, ssl: e.target.checked })} />
+              Enable SSL (mkcert certificate)
             </label>
             <div className="action-row">
-              <button className="primary-button" type="submit" disabled={isProvisioning || !adminToken}>
-                {isProvisioning ? 'Provisioning...' : 'Provision domain'}
+              <button className="primary-button" type="submit"
+                disabled={isProvisioning || !adminToken}>
+                {isProvisioning ? 'Provisioningâ€¦' : 'Provision domain'}
               </button>
-              <span className="hint-text">This uses the same admin token as protected updates.</span>
             </div>
           </form>
-          <ol className="steps">
-            {setupSteps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-          <p className="note subtle">{provisionMessage || 'Fill in the four required values, then LocalMesh will provision the route directly.'}</p>
-          {provisionResult ? (
-            <div className="result-grid">
-              <div className="metric-card">
-                <span>DNS rewrite</span>
-                <strong>{provisionResult.dns.status}</strong>
-              </div>
-              <div className="metric-card">
-                <span>Certificate</span>
-                <strong>{provisionResult.certificate.status}</strong>
-              </div>
-              <div className="metric-card">
-                <span>Proxy host</span>
-                <strong>{provisionResult.proxy.status}</strong>
-              </div>
-              <div className="metric-card">
-                <span>Server answer</span>
-                <strong>{provisionResult.dns.answer}</strong>
-              </div>
-            </div>
-          ) : null}
-          {provisionResult?.notes.length ? (
-            <ul className="service-list inline-list">
-              {provisionResult.notes.map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          ) : null}
+          {provisionMsg && <p className="note">{provisionMsg}</p>}
         </section>
 
-        <section className="panel">
-          <p className="section-tag">Services</p>
-          <h2>Ports and entry points</h2>
-          <ul className="service-list">
-            <li>AdGuard Home: http://{health?.serverIp ?? 'SERVER_IP'}:3000</li>
-            <li>Nginx Proxy Manager: http://{health?.serverIp ?? 'SERVER_IP'}:81</li>
-            <li>LocalMesh Dashboard: http://{health?.serverIp ?? 'SERVER_IP'}:2690</li>
-            <li>DNS: 53 TCP and UDP</li>
-            <li>HTTP: 80</li>
-            <li>HTTPS: 443</li>
-          </ul>
-          <div className="integration-stack">
-            <p className="section-tag">Integration state</p>
-            <span>AdGuard API: {health?.integrations.adguard.url ?? 'n/a'}</span>
-            <span>NPM API: {health?.integrations.nginxProxyManager.url ?? 'n/a'}</span>
-            <span>NPM credentials: {health?.integrations.nginxProxyManager.configured ? 'configured' : 'missing'}</span>
-          </div>
-        </section>
-
-        <section className="panel">
-          <p className="section-tag">Troubleshooting</p>
-          <h2>First checks</h2>
-          <ul className="service-list">
-            <li>Domain issue: confirm DNS entry and proxy route exist.</li>
-            <li>Service health: run localmesh status.</li>
-            <li>Logs: localmesh logs adguard or localmesh logs nginx.</li>
-            <li>SSL warning: install /opt/localmesh/ca/rootCA.pem on that device.</li>
-            <li>Blocked port: sudo ufw allow PORT/tcp.</li>
-          </ul>
-        </section>
-
+        {/* â”€â”€ DNS rewrites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <section className="panel wide">
           <div className="panel-head">
             <div>
-              <p className="section-tag">Updates</p>
-              <h2>Repo-driven update control</h2>
+              <p className="section-tag">AdGuard Home â€” DNS</p>
+              <h2>Active DNS rewrites</h2>
             </div>
-            <button className="primary-button" onClick={handleUpdateClick} type="button" disabled={updateData?.runtime?.status === 'running' || !adminToken}>
-              {updateData?.runtime?.status === 'running' ? 'Updating...' : 'Run update'}
+            <button className="secondary-button" type="button" onClick={() => void loadDnsRewrites()}>
+              Refresh
             </button>
           </div>
-          <div className="token-row">
-            <label>
-              Admin token
-              <input
-                value={adminToken}
-                onChange={(event) => setAdminToken(event.target.value)}
-                placeholder="Paste LOCALMESH_UPDATE_TOKEN"
-              />
-            </label>
-            <p className="hint-text">
-              {health?.integrations.updateAuthRequired
-                ? 'Protected actions require the LocalMesh admin token from /opt/localmesh/.env.production.'
-                : 'No update token is configured on this server.'}
-            </p>
+          {dnsRewrites.length === 0 ? (
+            <p className="note subtle">No DNS rewrites yet. Use the form above to add one, or check AdGuard credentials in .env.production.</p>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr><th>Domain</th><th>Resolves to</th><th></th></tr>
+              </thead>
+              <tbody>
+                {dnsRewrites.map((r) => (
+                  <tr key={`${r.domain}-${r.answer}`}>
+                    <td>{r.domain}</td>
+                    <td>{r.answer}</td>
+                    <td>
+                      <button className="danger-button" type="button"
+                        disabled={!adminToken}
+                        onClick={() => void handleDeleteDns(r.domain, r.answer)}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        {/* â”€â”€ Proxy hosts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        <section className="panel wide">
+          <div className="panel-head">
+            <div>
+              <p className="section-tag">Nginx Proxy Manager â€” Routes</p>
+              <h2>Active proxy hosts</h2>
+            </div>
+            <button className="secondary-button" type="button" onClick={() => void loadProxyHosts()}>
+              Refresh
+            </button>
+          </div>
+          {proxyHosts.length === 0 ? (
+            <p className="note subtle">No proxy hosts yet. Use the form above to add one, or check NPM credentials in .env.production.</p>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr><th>Domain</th><th>Forwards to</th><th>SSL</th><th></th></tr>
+              </thead>
+              <tbody>
+                {proxyHosts.map((h) => (
+                  <tr key={h.id}>
+                    <td>{h.domain_names.join(', ')}</td>
+                    <td>{h.forward_scheme}://{h.forward_host}:{h.forward_port}</td>
+                    <td>{h.ssl_forced ? 'Yes' : 'No'}</td>
+                    <td>
+                      <button className="danger-button" type="button"
+                        disabled={!adminToken}
+                        onClick={() => void handleDeleteProxy(h.id)}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        {/* â”€â”€ Updates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        <section className="panel wide">
+          <div className="panel-head">
+            <div>
+              <p className="section-tag">LocalMesh â€” Self update</p>
+              <h2>Repo-driven update</h2>
+            </div>
+            <button className="primary-button" type="button"
+              onClick={() => void handleUpdateClick()}
+              disabled={isRunning || !adminToken}>
+              {isRunning ? 'Updatingâ€¦' : 'Run update'}
+            </button>
           </div>
           <div className="update-grid">
             <div className="metric-card">
@@ -353,39 +392,47 @@ export default function App() {
               <strong>{formatHash(updateData?.summary?.remoteHash)}</strong>
             </div>
           </div>
-          <p className="note">{lastUpdateMessage || 'Upload your repo changes, then use this button to pull, rebuild, and restart LocalMesh.'}</p>
+          {updateMsg && <p className="note">{updateMsg}</p>}
           <div className="log-panel">
-            <div>
-              <h3>Pending changes</h3>
-              <ul className="commit-list">
-                {(updateData?.summary?.commits?.length ? updateData.summary.commits : [{ hash: 'none', message: 'No remote commits detected', author: 'LocalMesh', date: '' }]).map((commit) => (
-                  <li key={`${commit.hash}-${commit.message}`}>
-                    <strong>{commit.message}</strong>
-                    <span>{commit.author} {commit.date ? `- ${new Date(commit.date).toLocaleString()}` : ''}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
             <div>
               <h3>Update output</h3>
               <pre>{updateData?.runtime?.output?.join('\n') || 'No update run yet.'}</pre>
             </div>
+            <div>
+              <h3>Pending commits</h3>
+              <ul className="commit-list">
+                {(updateData?.summary?.commits?.length
+                  ? updateData.summary.commits
+                  : [{ hash: 'none', message: 'No pending commits', author: '', date: '' }]
+                ).map((c) => (
+                  <li key={`${c.hash}-${c.message}`}>
+                    <strong>{c.message}</strong>
+                    <span>{c.author}{c.date ? ` â€” ${new Date(c.date).toLocaleString()}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
-          <div className="history-panel">
-            <h3>Deployment history</h3>
-            <ul className="commit-list history-list">
-              {(updateData?.runtime?.history?.length ? updateData.runtime.history : [{ id: 'none', status: 'completed', startedAt: '', finishedAt: '', fromHash: '', targetHash: '', deployedHash: '', commits: [], error: 'No deployment history yet.' }]).map((entry) => (
-                <li key={entry.id}>
-                  <strong>{entry.error ? entry.error : `${entry.status} ${formatHash(entry.fromHash)} -> ${formatHash(entry.deployedHash)}`}</strong>
-                  <span>
-                    {entry.startedAt ? `${new Date(entry.startedAt).toLocaleString()} to ${new Date(entry.finishedAt).toLocaleString()}` : 'Run your first update to capture deployment history.'}
-                  </span>
-                  <span>{entry.commits.length ? `${entry.commits.length} remote commit(s) applied` : 'No remote commit metadata captured'}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {(updateData?.runtime?.history?.length ?? 0) > 0 && (
+            <div className="history-panel">
+              <h3>Deployment history</h3>
+              <ul className="commit-list history-list">
+                {updateData!.runtime.history.map((entry) => (
+                  <li key={entry.id}>
+                    <strong>
+                      {entry.error
+                        ? `Failed: ${entry.error}`
+                        : `${entry.status} â€” ${formatHash(entry.fromHash)} â†’ ${formatHash(entry.deployedHash)}`}
+                    </strong>
+                    <span>{entry.startedAt ? new Date(entry.startedAt).toLocaleString() : ''}</span>
+                    <span>{entry.commits.length} commit(s) applied</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
+
       </main>
     </div>
   );

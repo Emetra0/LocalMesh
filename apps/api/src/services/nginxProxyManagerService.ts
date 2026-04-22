@@ -148,3 +148,11 @@ export async function upsertProxyHost(domain: string, appIp: string, appPort: nu
 
   return { status: 'updated' as const, hostId: updated.id };
 }
+
+export async function listProxyHosts() {
+  return npmRequest<ProxyHost[]>('/nginx/proxy-hosts');
+}
+
+export async function deleteProxyHost(id: number) {
+  await npmRequest(`/nginx/proxy-hosts/${id}`, { method: 'DELETE' });
+}

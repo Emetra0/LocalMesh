@@ -172,10 +172,10 @@ systemctl enable localmesh.service
 ufw allow 53/tcp || true
 ufw allow 53/udp || true
 ufw allow 80/tcp  || true
-ufw allow 81/tcp  || true
 ufw allow 443/tcp || true
 ufw allow 2690/tcp || true
-ufw allow 3000/tcp || true
+# Ports 81 (NPM admin) and 3000 (AdGuard admin) are NOT opened.
+# They are managed through the LocalMesh dashboard only.
 
 echo ""
 echo "╔══════════════════════════════════════════╗"

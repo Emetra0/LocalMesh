@@ -5,6 +5,8 @@ import path from 'node:path';
 import type { NextFunction, Request, Response } from 'express';
 import { appConfig } from './config.js';
 import { isAdminTokenValid } from './services/auth.js';
+import { deleteDnsRewrite, ensureDnsRewrite, listDnsRewrites } from './services/adguardService.js';
+import { deleteProxyHost, listProxyHosts } from './services/nginxProxyManagerService.js';
 import { getIntegrationStatus, provisionDomain } from './services/domainService.js';
 import { getUpdateSummary } from './services/gitService.js';
 import { triggerUpdate } from './services/localmeshService.js';
@@ -83,6 +85,43 @@ app.post('/api/domains/provision', requireAdminToken, async (request, response, 
       ssl: Boolean(body.ssl),
     });
     response.status(201).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── DNS rewrite management ───────────────────────────────────────────────────
+app.get('/api/dns/rewrites', async (_request, response, next) => {
+  try {
+    response.json(await listDnsRewrites());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/dns/rewrites', requireAdminToken, async (request, response, next) => {
+  try {
+    const { domain, answer } = request.body as { domain: string; answer: string };
+    await deleteDnsRewrite(domain, answer);
+    response.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Proxy host management ────────────────────────────────────────────────────
+app.get('/api/proxy/hosts', async (_request, response, next) => {
+  try {
+    response.json(await listProxyHosts());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/proxy/hosts/:id', requireAdminToken, async (request, response, next) => {
+  try {
+    await deleteProxyHost(Number(request.params.id));
+    response.json({ ok: true });
   } catch (error) {
     next(error);
   }
