@@ -108,15 +108,25 @@ export default function App() {
   }, [adminToken]);
 
   async function loadHealth() {
-    const response = await fetch('/api/health');
-    const payload = (await response.json()) as HealthResponse;
-    setHealth(payload);
+    try {
+      const response = await fetch('/api/health');
+      const payload = (await response.json()) as HealthResponse;
+      setHealth(payload);
+    } catch {
+      // Swallow — API may still be starting
+    }
   }
 
   async function loadUpdateStatus() {
-    const response = await fetch('/api/update/status');
-    const payload = (await response.json()) as UpdateResponse;
-    setUpdateData(payload);
+    try {
+      const response = await fetch('/api/update/status');
+      const payload = (await response.json()) as UpdateResponse;
+      if (payload.summary && payload.runtime) {
+        setUpdateData(payload);
+      }
+    } catch {
+      // Swallow — API may still be starting
+    }
   }
 
   useEffect(() => {
@@ -306,8 +316,8 @@ export default function App() {
               <p className="section-tag">Updates</p>
               <h2>Repo-driven update control</h2>
             </div>
-            <button className="primary-button" onClick={handleUpdateClick} type="button" disabled={updateData?.runtime.status === 'running' || !adminToken}>
-              {updateData?.runtime.status === 'running' ? 'Updating...' : 'Run update'}
+            <button className="primary-button" onClick={handleUpdateClick} type="button" disabled={updateData?.runtime?.status === 'running' || !adminToken}>
+              {updateData?.runtime?.status === 'running' ? 'Updating...' : 'Run update'}
             </button>
           </div>
           <div className="token-row">
@@ -328,19 +338,19 @@ export default function App() {
           <div className="update-grid">
             <div className="metric-card">
               <span>Branch</span>
-              <strong>{updateData?.summary.branch ?? 'unknown'}</strong>
+              <strong>{updateData?.summary?.branch ?? 'unknown'}</strong>
             </div>
             <div className="metric-card">
               <span>Behind remote</span>
-              <strong>{updateData?.summary.isBehind ? 'Yes' : 'No'}</strong>
+              <strong>{updateData?.summary?.isBehind ? 'Yes' : 'No'}</strong>
             </div>
             <div className="metric-card">
               <span>Current</span>
-              <strong>{formatHash(updateData?.summary.localHash)}</strong>
+              <strong>{formatHash(updateData?.summary?.localHash)}</strong>
             </div>
             <div className="metric-card">
               <span>Latest</span>
-              <strong>{formatHash(updateData?.summary.remoteHash)}</strong>
+              <strong>{formatHash(updateData?.summary?.remoteHash)}</strong>
             </div>
           </div>
           <p className="note">{lastUpdateMessage || 'Upload your repo changes, then use this button to pull, rebuild, and restart LocalMesh.'}</p>
@@ -348,7 +358,7 @@ export default function App() {
             <div>
               <h3>Pending changes</h3>
               <ul className="commit-list">
-                {(updateData?.summary.commits.length ? updateData.summary.commits : [{ hash: 'none', message: 'No remote commits detected', author: 'LocalMesh', date: '' }]).map((commit) => (
+                {(updateData?.summary?.commits?.length ? updateData.summary.commits : [{ hash: 'none', message: 'No remote commits detected', author: 'LocalMesh', date: '' }]).map((commit) => (
                   <li key={`${commit.hash}-${commit.message}`}>
                     <strong>{commit.message}</strong>
                     <span>{commit.author} {commit.date ? `- ${new Date(commit.date).toLocaleString()}` : ''}</span>
@@ -358,13 +368,13 @@ export default function App() {
             </div>
             <div>
               <h3>Update output</h3>
-              <pre>{updateData?.runtime.output.join('\n') || 'No update run yet.'}</pre>
+              <pre>{updateData?.runtime?.output?.join('\n') || 'No update run yet.'}</pre>
             </div>
           </div>
           <div className="history-panel">
             <h3>Deployment history</h3>
             <ul className="commit-list history-list">
-              {(updateData?.runtime.history.length ? updateData.runtime.history : [{ id: 'none', status: 'completed', startedAt: '', finishedAt: '', fromHash: '', targetHash: '', deployedHash: '', commits: [], error: 'No deployment history yet.' }]).map((entry) => (
+              {(updateData?.runtime?.history?.length ? updateData.runtime.history : [{ id: 'none', status: 'completed', startedAt: '', finishedAt: '', fromHash: '', targetHash: '', deployedHash: '', commits: [], error: 'No deployment history yet.' }]).map((entry) => (
                 <li key={entry.id}>
                   <strong>{entry.error ? entry.error : `${entry.status} ${formatHash(entry.fromHash)} -> ${formatHash(entry.deployedHash)}`}</strong>
                   <span>

@@ -3,14 +3,27 @@ import { appConfig } from '../config.js';
 import type { UpdateSummary } from '../types.js';
 
 export async function getCurrentRevision() {
-  const git = simpleGit(appConfig.repoRoot);
-  return (await git.revparse(['HEAD'])).trim();
+  try {
+    const git = simpleGit(appConfig.repoRoot);
+    return (await git.revparse(['HEAD'])).trim();
+  } catch {
+    return 'unknown';
+  }
 }
 
 export async function getUpdateSummary(): Promise<UpdateSummary> {
   const git = simpleGit(appConfig.repoRoot);
-  const status = await git.status();
-  const branch = status.current ?? 'unknown';
+
+  let branch = 'unknown';
+  let localHash = 'unknown';
+  try {
+    const status = await git.status();
+    branch = status.current ?? 'unknown';
+    localHash = (await git.revparse(['HEAD'])).trim();
+  } catch {
+    // Not a git repo (e.g. running inside Docker without a bind-mount)
+    return { branch: 'unknown', localHash: 'unknown', remoteHash: null, isBehind: false, commits: [] };
+  }
 
   let remoteHash: string | null = null;
   try {
@@ -20,7 +33,6 @@ export async function getUpdateSummary(): Promise<UpdateSummary> {
     remoteHash = null;
   }
 
-  const localHash = await getCurrentRevision();
   const log = remoteHash
     ? await git.log({ from: localHash, to: remoteHash })
     : { all: [] };
